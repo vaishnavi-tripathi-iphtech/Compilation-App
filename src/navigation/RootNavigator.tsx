@@ -23,11 +23,12 @@ const AuthStackNavigator = () => (
 );
 
 const RootNavigator = () => {
-  const { user } = useSelector((state: RootState) => state.auth);
+  const { accessToken } = useSelector((state: RootState) => state.auth);
   //using PersistGate's loading state 
+    console.log('ROOT NAVIGATOR RENDER: accessToken =', accessToken);
   return (
     <RootStack.Navigator screenOptions={{ headerShown: false }}>
-      {user == null ? (
+      {accessToken == null ? (
         <RootStack.Screen name="Auth" component={AuthStackNavigator} />
       ) : (
         <RootStack.Screen name="Main" component={MainTabNavigator} />

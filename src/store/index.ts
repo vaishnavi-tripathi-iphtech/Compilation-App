@@ -9,16 +9,14 @@ import {
   PURGE,
   REGISTER,
 } from 'redux-persist';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import authReducer from './authSlice';
+import keychainStorage from './keychainStorage';
 
 // Configuration for persisting the auth slice
 const authPersistConfig = {
   key: 'auth',
-  storage: AsyncStorage,
-  // We only want to persist the `user` (for session) and `users` (our database).
-  // `isLoading` and `error` are transient and should reset on app start.
-  whitelist: ['user', 'users'],
+  storage: keychainStorage,
+  whitelist: ['accessToken', 'refreshToken'], 
 };
 
 const rootReducer = combineReducers({

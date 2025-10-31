@@ -35,3 +35,4 @@ export type RootStackParamList = {
 
 //Props for the screens in the Main Tab (useful if you need the tab navigator's props)
 export type AuthStackScreenProps<T extends keyof AuthStackParamList> = NativeStackScreenProps<AuthStackParamList, T>;
+
