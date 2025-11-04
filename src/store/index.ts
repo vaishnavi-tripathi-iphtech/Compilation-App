@@ -16,7 +16,7 @@ import keychainStorage from './keychainStorage';
 const authPersistConfig = {
   key: 'auth',
   storage: keychainStorage,
-  whitelist: ['accessToken', 'refreshToken'], 
+  whitelist: ['accessToken', 'refreshToken', 'users'], 
 };
 
 const rootReducer = combineReducers({

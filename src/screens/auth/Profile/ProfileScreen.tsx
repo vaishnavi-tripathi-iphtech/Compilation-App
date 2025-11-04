@@ -1,104 +1,225 @@
-import React, {useEffect} from 'react';
-import { View, Button, StyleSheet, Text } from 'react-native';
+import React, { useState } from 'react';
+import { ScrollView, View, StyleSheet, Text, TouchableOpacity, Alert } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { AppDispatch, RootState } from '../../../store';
-import { logout, selectCurrentUser } from '../../../store/authSlice';
-import apiClient from '../../../api/client';
+import { Formik } from 'formik';
+import * as Yup from 'yup';
+import FormInput from '../../../components/FormInput';
+import StarRating from '../../../components/Rating';
+import ModalForm from '../../../components/ ModalForm';
+import { AppDispatch } from '../../../store';
+import { logout, selectCurrentUser, updateUserProfile } from '../../../store/authSlice';
+import { persistor } from '../../../store';
+
+const ProfileSchema = Yup.object().shape({
+  firstName: Yup.string().required('First name is required'),
+  lastName: Yup.string().required('Last name is required'),
+  username: Yup.string().min(3).required('Username is required'),
+});
+
+const FeedbackSchema = Yup.object().shape({
+  voiceRating: Yup.number().min(1, 'Rating is required').required(),
+  videoRating: Yup.number().min(1, 'Rating is required').required(),
+  suggestion: Yup.string(),
+});
 
 const ProfileScreen = () => {
   const dispatch = useDispatch<AppDispatch>();
+  const currentUser = useSelector(selectCurrentUser);
 
-  const authData = useSelector(selectCurrentUser);
-  const user = authData?.user;
-  const { isRefreshing } = useSelector((state: RootState) => state.auth);
+  const [isEditModalVisible, setEditModalVisible] = useState(false);
+  const [isFeedbackModalVisible, setFeedbackModalVisible] = useState(false);
 
-  useEffect(() => {
-    if (authData?.exp) {
-      const expirationTime = authData.exp * 1000;
-      const currentTime = Date.now();
-      const timeUntilExpiration = expirationTime - currentTime;
-
-      if (timeUntilExpiration > 0) {
-        console.log(`PROFILE SCREEN: Token will expire in ${Math.round(timeUntilExpiration / 1000)} seconds.`);
-        
-        const timerId = setTimeout(() => {
-          console.warn('<<<<< TOKEN HAS EXPIRED! >>>>> You can now press "Test Protected API" to see the silent refresh.');
-        }, timeUntilExpiration);
-
-        // This is a cleanup function. It runs if the component unmounts.
-        // It's important to clear the timer to prevent memory leaks.
-        return () => clearTimeout(timerId);
-      } else {
-        console.warn('<<<<< TOKEN IS ALREADY EXPIRED! >>>>> Press "Test Protected API" to see the silent refresh.');
-      }
-    }
-  }, [authData?.exp]); // This effect re-runs if the expiration time changes (on a new login)
-  
-  const handleTestApi = async () => {
-    try {
-      console.log(`triggering fake api call`);
-       //Alert.alert('Triggering fake API call.',
-        //'If token is expired this will trigger a silent refresh.', [{ text: 'OK' },
-           // ]);
-    // This will fail with a 404, but our interceptor will run first if the token is expired.
-    // We will catch the 404 to prevent an unhandled rejection warning.
-      await apiClient.get('/protected-data'); 
-    } catch (e: any) {
-      if (e.response?.status !== 401) {
-        // This might run after a successful refresh if the final call still fails (e.g., 404)
-        console.log('API call finished.');
-      } else {
-        console.log(`API call failed: ${e.message}`);
-      }
-    }
+  const handleUpdateProfile = (values: any) => {
+    dispatch(updateUserProfile({ ...values, id: currentUser.id }));
+   Alert.alert('Profile Updated!');
+    setEditModalVisible(false); //close modal on submit
   };
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Profile</Text>
-      {user && <Text style={styles.welcomeText}>Welcome, {user.username}!</Text>}
-      
-      <View style={styles.button}>
-        <Button title="Test Protected API" onPress={handleTestApi} />
-      </View>
+  const handleFeedbackSubmit = (values: any, { resetForm }) => {
+    console.log('Feedback Submitted:', values);
+    Alert.alert('Thank You!', 'Your feedback has been submitted.', [
+        { text: 'OK', onPress: () => {
+            resetForm();
+            setFeedbackModalVisible(false); //close modal on submit
+        }}
+    ]);
+  };
+  
+  const handleLogout = async () => {
+    dispatch(logout());
+    await persistor.purge();
+  };
 
-      <View style={styles.button}>
-        <Button
-          title={isRefreshing ? 'Refreshing Session...' : 'Log Out'}
-          onPress={() => dispatch(logout())}
-          disabled={isRefreshing}
-        />
+  if (!currentUser) return <Text style={styles.loadingText}>Loading Profile...</Text>;
+
+  return (
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.title}>Profile</Text>
+
+      <View style={styles.infoContainer}>
+        <Text style={styles.infoLabel}>Full Name:</Text>
+        <Text style={styles.infoValue}>{currentUser.firstName} {currentUser.lastName}</Text>
       </View>
-    </View>
+      <View style={styles.infoContainer}>
+        <Text style={styles.infoLabel}>Username:</Text>
+        <Text style={styles.infoValue}>@{currentUser.username}</Text>
+      </View>
+      <View style={styles.infoContainer}>
+        <Text style={styles.infoLabel}>Email:</Text>
+        <Text style={styles.infoValue}>{currentUser.email}</Text>
+      </View>
+       <View style={styles.infoContainer}>
+        <Text style={styles.infoLabel}>Phone:</Text>
+        <Text style={styles.infoValue}>{currentUser.phone}</Text>
+      </View>
+      
+      <TouchableOpacity style={styles.actionButton} onPress={() => setEditModalVisible(true)}>
+        <Text style={styles.actionButtonText}>Edit Profile</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.actionButton} onPress={() => setFeedbackModalVisible(true)}>
+        <Text style={styles.actionButtonText}>Give Feedback</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <Text style={styles.actionButtonText}>Log Out</Text>
+      </TouchableOpacity>
+  
+
+      <ModalForm 
+        visible={isEditModalVisible} 
+        onClose={() => setEditModalVisible(false)}
+        title="Edit Profile"
+      >
+        <Formik
+          initialValues={{
+            firstName: currentUser.firstName,
+            lastName: currentUser.lastName,
+            username: currentUser.username,
+          }}
+          validationSchema={ProfileSchema}
+          onSubmit={handleUpdateProfile}
+          enableReinitialize
+        >
+          {(formik) => (
+            <>
+              <FormInput formik={formik} fieldName="firstName" label="First Name" />
+              <FormInput formik={formik} fieldName="lastName" label="Last Name" />
+              <FormInput formik={formik} fieldName="username" label="Username" />
+              <TouchableOpacity style= { styles.actionButton} onPress={() => formik.handleSubmit()}>
+                    <Text style= {styles.actionButtonText}>
+                      Submit
+                    </Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </Formik>
+      </ModalForm>
+
+
+      <ModalForm 
+        visible={isFeedbackModalVisible} 
+        onClose={() => setFeedbackModalVisible(false)}
+        title="Call Feedback"
+      >
+        <Formik
+          initialValues={{ voiceRating: 0, videoRating: 0, suggestion: '' }}
+          validationSchema={FeedbackSchema}
+          onSubmit={handleFeedbackSubmit}
+        >
+          {(formik) => (
+            <>
+              <View style={styles.ratingSection}>
+                <Text style={styles.ratingLabel}>Voice Quality:</Text>
+                <StarRating 
+                  rating={formik.values.voiceRating}
+                  onRate={(rate) => formik.setFieldValue('voiceRating', rate)}
+                />
+              </View>
+              <View style={styles.ratingSection}>
+                <Text style={styles.ratingLabel}>Video Quality:</Text>
+                <StarRating 
+                  rating={formik.values.videoRating}
+                  onRate={(rate) => formik.setFieldValue('videoRating', rate)}
+                />
+              </View>
+              <FormInput
+                formik={formik}
+                fieldName="suggestion"
+                label="Suggestions:"
+                multiline
+                numberOfLines={4}
+              />
+                  <TouchableOpacity style= { styles.actionButton} onPress={() => formik.handleSubmit()}>
+                    <Text style= {styles.actionButtonText}>
+                      Submit
+                    </Text>
+                  </TouchableOpacity>
+            </>
+          )}
+        </Formik>
+      </ModalForm>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    padding: 20
-  },
-
-  title: { 
-    fontSize: 24, 
-    marginBottom: 10 
-  },
-
-  welcomeText: {
-    fontSize: 18,
-    marginBottom: 30,
-    color: '#333',
-  },
-
-  button: {
-    width: '80%',
-    marginVertical: 5,
-  }
+    container: {
+       padding: 20, 
+       paddingBottom: 50 
+      },
+    loadingText: { 
+      flex: 1, 
+      textAlign: 'center', 
+      textAlignVertical: 'center', 
+      fontSize: 18 },
+    title: { 
+      fontSize: 28, 
+      fontWeight: 'bold', 
+      marginBottom: 30, 
+      textAlign: 'center' 
+    },
+    infoContainer: { 
+      flexDirection: 'row', 
+      justifyContent: 'space-between', 
+      marginBottom: 15, 
+      paddingVertical: 10, 
+      borderBottomWidth: 1, 
+      borderBottomColor: '#cbcbcbff' 
+    },
+    infoLabel: { 
+      fontSize: 16, 
+      color: '#666' 
+    },
+    infoValue: { 
+      fontSize: 16, 
+      fontWeight: '500' 
+    },
+    actionButton: { 
+      backgroundColor: '#bababaff', 
+      padding: 15, 
+      borderRadius: 10, 
+      alignItems: 'center', 
+      marginTop: 15 
+    },
+    actionButtonText: { 
+      color: 'white', 
+      fontSize: 16, 
+      fontWeight: 'bold' 
+    },
+    logoutButton: { 
+      marginTop: 15,
+      backgroundColor: '#bababaff', 
+      padding: 15, 
+      borderRadius: 10, 
+      alignItems: 'center'
+    },
+    ratingSection: { 
+      marginBottom: 20 
+    },
+    ratingLabel: { 
+      fontSize: 16, 
+      marginBottom: 10 
+    },
 });
 
 export default ProfileScreen;
-
-
-

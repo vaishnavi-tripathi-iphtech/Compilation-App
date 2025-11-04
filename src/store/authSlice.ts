@@ -4,10 +4,18 @@ import { jwtDecode } from 'jwt-decode';
 import { encode } from 'base-64';
 
 interface User {
+  id: string;
   username: string;
+  firstName: string;
+  lastName: string;
+  userName: string;
+  email:string;
+  phone:string;
+  address:string;
+  gender: 'male'|'female'|'other'|'prefer not to say';
 }
 
-interface UserWithPassword extends User {
+interface UserRecord extends User {
   password?: string;
 }
 
@@ -22,12 +30,14 @@ interface AuthTokens {
 interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
-  users: UserWithPassword[];
+  users: UserRecord[]; //mock user db
   isLoading: boolean;
   isRefreshing: boolean;
   error: string | null;
 }
-interface DecodedToken extends User {
+interface JwtPayload {
+  id: string;
+  username: string;
   iat: number; //Issued At
   exp: number; //Expiration Time
 }
@@ -36,14 +46,14 @@ interface DecodedToken extends User {
 const initialState: AuthState = {
   accessToken: null,
   refreshToken: null,
-  users: [],
+  users: [ ],
   isLoading: false,
   isRefreshing: false,
   error: null,
 };
 
 //Mock JWT Functions
-const createFakeJWT = (payload: User): string => {
+const createFakeJWT = (payload: { id: string; username: string }): string => {
   const header = { alg: 'HS256', typ: 'JWT' };
   const expiration = Math.floor(Date.now() / 1000) + 60;
   const fullPayload = { ...payload, iat: Math.floor(Date.now() / 1000), exp: expiration };
@@ -63,53 +73,45 @@ const createFakeRefreshToken = (): string => `refresh-token-${Math.random()}`;
 //Async Thunks: Register, login, refresh access token 
 export const registerUser = createAsyncThunk(
   'auth/registerUser',
-  async (credentials: Credentials, { getState, rejectWithValue }) => {
+  async (userData: Omit<UserRecord, 'id'>, { getState, rejectWithValue }) => {
     try {
       const { users } = (getState() as RootState).auth;
-      await new Promise(resolve => setTimeout(() => resolve(undefined), 1000));
-      if (users && users.find(u => u.username.toLowerCase() === credentials.username.toLowerCase())) {
-        return rejectWithValue('Username already exists.');
-      }
-      const newUser: UserWithPassword = { username: credentials.username, password: credentials.password };
+      //check for existing username/email
+      const newUser: UserRecord = {
+        id: `user-${Math.random()}`, // Create a unique ID
+        ...userData,
+      };
       return newUser;
     } catch (error: any) {
-      return rejectWithValue(error.message || 'Registration failed unexpectedly.');
+      return rejectWithValue(error.message);
     }
   }
 );
 
 export const loginUser = createAsyncThunk(
-  'auth/loginUser',
-  async (credentials: Credentials, { getState, rejectWithValue }) => {
-    try {
-      const { users } = (getState() as RootState).auth;
-      console.log('THUNK: loginUser is firing... Current users in state:', users);
+    'auth/loginUser',
+    async (credentials: Credentials, { getState, rejectWithValue }) => {
+        try {
+            // find user in `users` array from state
+            const { users } = (getState() as RootState).auth;
+            const foundUser = users.find(
+                (u) => u.username === credentials.username || u.email === credentials.username
+            );
 
-      if (!Array.isArray(users)) {
-        throw new Error("User database is not loaded correctly.");
-      }
-
-      await new Promise(resolve => setTimeout(() => resolve(undefined), 1500));
-
-      const foundUser = users.find(u => u.username.toLowerCase() === credentials.username.toLowerCase());
-
-      if (foundUser && foundUser.password === credentials.password) {
-        console.log('THUNK: Login successful. Creating tokens...');
-        const { password: _, ...userPayload } = foundUser;
-        const tokens: AuthTokens = {
-          accessToken: createFakeJWT(userPayload),
-          refreshToken: createFakeRefreshToken(),
-        };
-        return tokens;
-      } else {
-        console.log('THUNK: Login failed. Rejecting with value...');
-        return rejectWithValue('Invalid username or password.');
-      }
-    } catch (error: any) {
-      console.error('CRITICAL ERROR in loginUser thunk:', error);
-      return rejectWithValue(error.message || 'Login failed unexpectedly.');
+            if (foundUser && foundUser.password === credentials.password) {
+                // --- Create JWT with MINIMAL payload ---
+                const tokens: AuthTokens = {
+                    accessToken: createFakeJWT({ id: foundUser.id, username: foundUser.username }),
+                    refreshToken: createFakeRefreshToken(),
+                };
+                return tokens;
+            } else {
+                return rejectWithValue('Invalid username or password.');
+            }
+        } catch (error: any) {
+            return rejectWithValue(error.message);
+        }
     }
-  }
 );
 
 export const refreshAccessToken = createAsyncThunk(
@@ -122,7 +124,7 @@ export const refreshAccessToken = createAsyncThunk(
     if (accessToken) {
       try {
         const decoded: User = jwtDecode(accessToken);
-        const newAccessToken = createFakeJWT({ username: decoded.username });
+        const newAccessToken = createFakeJWT({ id: decoded.id, username: decoded.username });
         console.log("THUNK: Token refresh successful.");
         return { accessToken: newAccessToken };
       } catch (e) {
@@ -147,6 +149,15 @@ const authSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+    updateUserProfile: (state, action: PayloadAction<Partial<User>>) => {
+        const { id } = action.payload;
+        if (!id) return;
+        
+        const userIndex = state.users.findIndex(user => user.id === id);
+        if (userIndex !== -1) {
+            state.users[userIndex] = { ...state.users[userIndex], ...action.payload };
+        }
+    },
   },
 
   extraReducers: (builder) => {
@@ -156,7 +167,7 @@ const authSlice = createSlice({
         state.isLoading = true;
         state.error = null;
       })
-      .addCase(registerUser.fulfilled, (state, action: PayloadAction<UserWithPassword>) => {
+      .addCase(registerUser.fulfilled, (state, action: PayloadAction<UserRecord>) => {
         state.isLoading = false;
         state.users.push(action.payload);
       })
@@ -202,12 +213,12 @@ const authSlice = createSlice({
 });
 
 //selectors and Exports
-export const selectCurrentUser = (state: RootState): { user: User; exp: number } | null => {
+export const selectCurrentUser = (state: RootState):  User | null => {
   if (state.auth.accessToken) {
     try {
-      const decoded = jwtDecode<DecodedToken>(state.auth.accessToken);
+      const decoded = jwtDecode<JwtPayload>(state.auth.accessToken);
       //user info and the expiration timestamp in debugger
-      return { user: { username: decoded.username }, exp: decoded.exp };
+      return state.auth.users.find(user => user.id === decoded.id) || null;
     } catch (e) {
       console.log('Error decoding token in selector:', e);
       return null;
@@ -216,5 +227,5 @@ export const selectCurrentUser = (state: RootState): { user: User; exp: number }
   return null;
 };
 
-export const { logout, clearError } = authSlice.actions;
+export const { logout, clearError , updateUserProfile} = authSlice.actions;
 export default authSlice.reducer;
